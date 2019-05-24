@@ -57,7 +57,8 @@ class _ImagePlot:
                  x_min: Union[float, None], x_max: Union[float, None],
                  x_increment: Union[float, None], y_min: Union[float, None],
                  y_max: Union[float, None], y_increment: Union[float, None],
-                 hints_for_channels: Dict[str, dict]):
+                 hints_for_channels: Dict[str, dict],
+                 colorbar: pyqtgraph.GradientEditorItem=None):
         self.image_item = image_item
         self.active_channel_name = active_channel_name
         self.hints_for_channels = hints_for_channels
@@ -76,6 +77,8 @@ class _ImagePlot:
         self.y_range = None
         self.image_data = None
 
+        self.colorbar = colorbar
+
     def activate_channel(self, channel_name: str):
         self.active_channel_name = channel_name
         self._invalidate_current()
@@ -86,6 +89,12 @@ class _ImagePlot:
         if invalidate_previous:
             self._invalidate_current()
         self._update()
+
+    def update_colorbar(self, colorbar):
+        self.colorbar = colorbar
+        if self.image_data is not None:
+            self._invalidate_current()
+            self._update()
 
     def _invalidate_current(self):
         self.num_shown = 0
@@ -152,9 +161,12 @@ class _ImagePlot:
         z_min, z_max = self.current_z_limits
         z_scaled = (z_data[num_skip:num_to_show] - z_min) / (z_max - z_min)
 
-        cmap = colormaps.plasma
-        if self._get_display_hints().get("coordinate_type", "") == "cyclic":
-            cmap = colormaps.kovesi_c8
+        if self.colorbar:
+            cmap = self.colorbar.colorMap()
+        else:
+            cmap = colormaps.plasma
+            if self._get_display_hints().get("coordinate_type", "") == "cyclic":
+                cmap = colormaps.kovesi_c8
         self.image_data[x_inds, y_inds, :] = cmap.map(z_scaled)
 
         self.image_item.setImage(self.image_data, autoLevels=False)
@@ -223,11 +235,20 @@ class Image2DPlotWidget(AlternateMenuPlotWidget):
         def bounds(schema):
             return (schema.get(n, None) for n in ("min", "max", "increment"))
 
+        self.colorbar = pyqtgraph.GradientEditorItem(orientation='right', allowAdd=False)
+        pi = self.getPlotItem()
+        pi.layout.addItem(self.colorbar, 2, 3)
+        self.colorbar.sigGradientChanged.connect(self._update_colorbar)
+
         image_item = pyqtgraph.ImageItem()
         self.addItem(image_item)
         self.plot = _ImagePlot(image_item, self.data_names[0], *bounds(self.x_schema),
-                               *bounds(self.y_schema), hints_for_channels)
+                               *bounds(self.y_schema), hints_for_channels, self.colorbar)
+
         self.ready.emit()
+
+    def _update_colorbar(self):
+        self.plot.update_colorbar(self.colorbar)
 
     def _update_points(self, points, invalidate):
         if self.plot:
